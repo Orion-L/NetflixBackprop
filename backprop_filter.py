@@ -3,6 +3,7 @@
 import copy
 import math
 import numpy as np
+import sys
 from keras.models import Sequential
 from keras.layers import Dense, Activation
 
@@ -156,8 +157,29 @@ def compute(users_train, users_test):
     print("total test RMSE: " + str(test_rmse))
 
 if __name__ == "__main__":
-    test = [[5, 4, 4, 0, 5], [0, 3, 5, 3, 4], [5, 2, 0, 2, 3], [0, 2, 3, 1, 2], [4, 0, 5, 4, 5], [5, 3, 0, 3, 5], [3, 2, 3, 2, 0], [5, 3, 4, 0, 5], [4, 2, 5, 4, 0], [5, 0, 5, 3, 4]]
-    training = [[5, 4, 4, 0, 0], [0, 3, 5, 0, 4], [5, 2, 0, 0, 3], [0, 0, 3, 1, 2], [4, 0, 0, 4, 5], [0, 3, 0, 3, 5], [3, 0, 3, 2, 0], [5, 0, 4, 0, 5], [0, 2, 5, 4, 0], [0, 0, 5, 3, 4]]
+    train_matrix = []
+    test_matrix = []
 
-    compute(training, test)
+    input_file = sys.argv[1]
+    f = open(input_file, 'r')
+    for line in f:
+        user_train = []
+        user_test = []
+
+        for rating in line.split():
+            if rating == '-':
+                user_train.append(0)
+                user_test.append(0)
+            elif rating.endswith('?'):
+                user_train.append(0)
+                user_test.append(float(rating[:-1]))
+            else:
+                user_train.append(float(rating))
+                user_test.append(float(rating))
+
+        train_matrix.append(user_train)
+        test_matrix.append(user_test)
+    
+
+    compute(train_matrix, test_matrix)
 
