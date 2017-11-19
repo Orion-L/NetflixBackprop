@@ -9,6 +9,57 @@ from keras.layers import Dense, Activation
 
 np.random.seed(5)
 
+# Number of training iterations
+train_epoch = 5000
+
+'''
+Model Layer Setups
+1: (n - 1) -> 2 -> 1
+    set1.txt missing RMSE = 0.94
+    set3.txt missing RMSE = 1.58
+    For some users, network fits training data extremely closely (overfitting perhaps).
+    For others, network seems to compute some sort of average rating.
+
+2: (n - 1) -> (n - 1) -> 1
+    set1.txt missing RMSE = 1.07
+    set3.txt missing RMSE = 1.48 
+    Fits training data extrememly closely for every user (very indicative of overfitting).
+    Network has a hard time predicting test ratings.
+
+3: (n - 1) -> (n - 1) -> 2 -> 1
+    set1.txt missing RMSE = 1.17 
+    set3.txt missing RMSE = 1.28
+    Very closely fits training data for set1.
+    However, computes some sort of average rating for set3.
+    It's unclear why this is the case (perhaps due to set3 resulting in more nodes?).
+
+4: (n - 1) -> (n - 1) -> 200 -> 1
+    set1.txt missing RMSE = 0.81 
+    set3.txt missing RMSE = 1.47
+    Still fits training data quite closely, but test predictions seem to be significantly more accurate for set1.
+    Some predictions in set3 are quite close whereas others are completely wrong, likely due to pseudo-randomness of set3.
+
+5: (n - 1) -> (n - 1) -> 200 -> 2 -> 1
+    set1.txt missing RMSE = 0.72
+    set3.txt missing RMSE = 1.28 
+    For a small number of users in set1, the network calculates some sort of average and fits the training data in others.
+    It's still unclear how this behaviour arises (possibly due the 2-node layer being able to encode biases, though not sure if set1 includes such biases).
+    Does not fit training data as closely as previous setups, and the test predictions seem more accurate.
+
+6: (n - 1) -> (n - 1) / 2 -> 1
+    set1.txt missing RMSE = 1.05 
+    set3.txt missing RMSE = 1.57 
+    Extremely close fitting of training data (training RMSE <= 0.01 for all users in set1).
+    Appears as though the lack of network complexity introduces overfitting.
+
+7: (n - 1) -> (n - 1) -> (n - 1) / 2 -> 1
+    set1.txt missing RMSE = 0.9
+    set3.txt missing RMSE = 1.39 
+    Closely fits training data, but predictions are more accurate.
+    It does appear as though adding more complexity allows the network to form better predictions (probably because it can encode more low-level relations)
+'''
+model_setup = 4
+
 def sigmoid(x):
     return 1 / (1 + math.exp(-x))
 
@@ -24,8 +75,42 @@ def rmse(true_vals, pred_vals):
         
         err_sum += (pred_vals[count] - true_vals[i]) ** 2
         count += 1
+    
+    if count == 0:
+        return None
 
     return round(math.sqrt(err_sum / count), 2)
+
+def init_model(num_inputs):
+    model = Sequential()
+
+    if model_setup == 1:
+        model.add(Dense(2, activation='sigmoid', input_dim=num_inputs))
+    elif model_setup == 2:
+        model.add(Dense(num_inputs, activation='sigmoid', input_dim=num_inputs))
+    elif model_setup == 3:
+        model.add(Dense(num_inputs, activation='sigmoid', input_dim=num_inputs))
+        model.add(Dense(2, activation='sigmoid'))
+    elif model_setup == 4:
+        model.add(Dense(num_inputs, activation='sigmoid', input_dim=num_inputs))
+        model.add(Dense(200, activation='sigmoid'))
+    elif model_setup == 5:
+        model.add(Dense(num_inputs, activation='sigmoid', input_dim=num_inputs))
+        model.add(Dense(200, activation='sigmoid'))
+        model.add(Dense(2, activation='sigmoid'))
+    elif model_setup == 6:
+        model.add(Dense(math.ceil(num_inputs / 2), activation='sigmoid', input_dim=num_inputs))
+    elif model_setup == 7:
+        model.add(Dense(num_inputs, activation='sigmoid', input_dim=num_inputs))
+        model.add(Dense(math.ceil(num_inputs / 2), activation='sigmoid'))
+
+    
+    model.add(Dense(1, activation='sigmoid'))
+    
+    # Compile the model with mean sequared error(quadratic loss) cost function
+    model.compile(optimizer='rmsprop', loss='mse')
+    
+    return model
 
 def compute(users_train, users_test):
     # 1-D lists to hold all true/predicted values
@@ -43,25 +128,12 @@ def compute(users_train, users_test):
     test_str = '{:5}'.format('?')
     
     # Set up the model
-    model = Sequential()
-    model.add(Dense(len(users_train) - 1, activation='sigmoid', input_dim=len(users_train) - 1))
-    #model.add(Dense(16, activation='sigmoid', input_dim=len(users_train) - 1))
-    #model.add(Dense(2, activation='sigmoid', input_dim=len(users_train) - 1))
-    #model.add(Dense(16, activation='sigmoid'))
-    model.add(Dense(200, activation='sigmoid'))
-    #model.add(Dense(len(users_train) - 1, activation='sigmoid'))
-    #model.add(Dense(len(users_train) - 1, activation='sigmoid'))
-    #model.add(Dense(len(users_train) - 1, activation='sigmoid'))
-    model.add(Dense(2, activation='sigmoid'))
-    model.add(Dense(1, activation='sigmoid'))
-
-    model.compile(optimizer='rmsprop', loss='mse')
+    model = init_model(len(users_train) - 1)
     
     print("\n")
 
     # Iterate through all users
     for usr in range(0, len(users_train)):
-        print("User " + str(usr + 1))
         all_train_true.extend(users_train[usr])
         all_test_true.extend(users_test[usr])
         
@@ -69,7 +141,8 @@ def compute(users_train, users_test):
         # Deep copy needed to prevent modifying the original list
         train_copy = copy.deepcopy(users_train)
         del train_copy[usr]
-        test_copy = copy.deepcopy(users_test)
+
+        test_copy = copy.deepcopy(users_train)
         del test_copy[usr]
         
         # Transpose the ratings matrix (outer list is now movies, inner lists are ratings from given user)
@@ -89,7 +162,8 @@ def compute(users_train, users_test):
                 del expected[train_del_index]
             else:
                 train_del_index += 1
-
+            
+            # Only remove movies from the test list that aren't present in the test set
             if users_test[usr][i] == 0:
                 del movies_test[test_del_index]
             else:
@@ -97,7 +171,7 @@ def compute(users_train, users_test):
         
         # Train the model
         model.reset_states()
-        model.fit(movies_train, expected, epochs=5000, verbose=0)
+        model.fit(movies_train, expected, epochs=train_epoch, verbose=0)
        
         # Perform a prediction on the training data
         predictions = model.predict_on_batch(movies_train)
@@ -143,6 +217,7 @@ def compute(users_train, users_test):
         missing_rmse = rmse(missing_true, missing_pred)
         test_rmse = rmse(users_test[usr], test_pred_ranks)
 
+        print("User " + str(usr + 1))
         print("input ratings:\t[" + ' '.join(i for i in expected_print) + "]")
         print("train ratings:\t[" + ' '.join(i for i in train_print) + "], RMSE: " + str(train_rmse))
         print("test ratings:\t[" + ' '.join(i for i in test_print) + "], missing RMSE: " + str(missing_rmse) + ", total RMSE: " + str(test_rmse) + "\n")
@@ -165,7 +240,8 @@ if __name__ == "__main__":
     for line in f:
         user_train = []
         user_test = []
-
+        
+        line.strip()
         for rating in line.split():
             if rating == '-':
                 user_train.append(0)
@@ -180,6 +256,6 @@ if __name__ == "__main__":
         train_matrix.append(user_train)
         test_matrix.append(user_test)
     
-
+    f.close()
     compute(train_matrix, test_matrix)
 
